@@ -1,15 +1,12 @@
-package com.thestone.storyapi.subtitles;
+package com.thestone.storyapimod.subtitles;
 
-import com.google.gson.*;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
-import net.minecraft.util.GsonHelper;
 import net.minecraft.util.Mth;
 
-import java.lang.reflect.Type;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.function.Consumer;
@@ -167,7 +164,7 @@ public class DialogueSubtitles {
 
     public void show(String message, int ticks) {
         clear();
-        enqueue(Component.literal(message), Style.EMPTY.withColor(net.minecraft.ChatFormatting.GOLD).withItalic(true), ticks);
+        enqueue(Component.literal(message), Style.EMPTY.withColor(ChatFormatting.GOLD).withItalic(true), ticks);
     }
 
 }

@@ -1,39 +1,32 @@
-package com.thestone.storyapi.data;
+package com.thestone.storyapimod.payloads;
 
-import com.thestone.storyapi.StoryApi;
-import com.thestone.storyapi.subtitles.DialogueSubtitles;
-import net.minecraft.client.Minecraft;
-import net.minecraft.core.RegistryAccess;
+
+import com.thestone.storyapimod.Storyapimod;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
+import net.neoforged.neoforge.network.PacketDistributor;
 
 
+public record DialoguePayload(String dialogueId, String componentJson, int durationTicks, boolean clearQueue, boolean isFinal) implements CustomPacketPayload {
 
-public record DialoguePacket(String dialogueId,
-                             String componentJson,
-                             int durationTicks,
-                             boolean clearQueue,
-                             boolean isFinal) implements CustomPacketPayload {
+    public static final Type<DialoguePayload> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(Storyapimod.MOD_ID, "dialogue_packet"));
 
-    public static final Type<DialoguePacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(StoryApi.MOD_ID, "dialogue_packet"));
-
-    public static final StreamCodec<net.minecraft.network.FriendlyByteBuf, DialoguePacket> STREAM_CODEC = StreamCodec.composite(
+    public static final StreamCodec<net.minecraft.network.FriendlyByteBuf, DialoguePayload> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.STRING_UTF8,
-            DialoguePacket::dialogueId,
+            DialoguePayload::dialogueId,
             ByteBufCodecs.STRING_UTF8,
-            DialoguePacket::componentJson,
+            DialoguePayload::componentJson,
             ByteBufCodecs.VAR_INT,
-            DialoguePacket::durationTicks,
+            DialoguePayload::durationTicks,
             ByteBufCodecs.BOOL,
-            DialoguePacket::clearQueue,
+            DialoguePayload::clearQueue,
             ByteBufCodecs.BOOL,
-            DialoguePacket::isFinal,
-            DialoguePacket::new);
+            DialoguePayload::isFinal,
+            DialoguePayload::new);
 
     @Override
     public Type<? extends CustomPacketPayload> type() {
@@ -41,39 +34,24 @@ public record DialoguePacket(String dialogueId,
     }
 
     public static void sendTo(ServerPlayer player, Component component, int duration, boolean clear, boolean isFinal) {
+        if (duration <= 0) {
+            throw new IllegalArgumentException("Dialogue duration must be positive");
+        }
 
-        String json = Component.Serializer.toJson(component, RegistryAccess.EMPTY);
+        String json = Component.Serializer.toJson(
+                component,
+                player.registryAccess()
+        );
 
-
-        player.connection.send(new DialoguePacket(
-                "dialogue",
-                json,
-                duration,
-                clear,
-                isFinal
-        ));
-    }
-
-    public void handle(IPayloadContext context) {
-        if (!context.flow().isClientbound()) return;
-        context.enqueueWork(() -> {
-            Minecraft mc = Minecraft.getInstance();
-            if (mc.player == null || mc.level == null) {
-                return;
-            }
-            Component component = Component.Serializer.fromJson(this.componentJson, RegistryAccess.EMPTY);
-            if (component == null) {
-                return;
-            }
-            DialogueSubtitles subtitles = DialogueSubtitles.get();
-            if (this.clearQueue) {
-                subtitles.clear();
-            }
-            subtitles.enqueue(
-                    component,
-                    component.getStyle(),
-                    this.durationTicks
-            );
-        });
+        PacketDistributor.sendToPlayer(
+                player,
+                new DialoguePayload(
+                        "dialogue",
+                        json,
+                        duration,
+                        clear,
+                        isFinal
+                )
+        );
     }
 }
