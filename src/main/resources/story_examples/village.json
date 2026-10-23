@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "id": "storyapimod:village_story",
+  "quests": [
+    {
+      "id": "storyapimod:village_intro",
+      "title": "Знакомство с деревней",
+      "start": {
+        "type": "entity_click",
+        "entity": "minecraft:villager",
+        "tag": "story_guide",
+        "dimension": "minecraft:overworld"
+      },
+      "onStart": [
+        { "text": "Проводник: добро пожаловать! Осмотри сундук, затем зайди в деревню.", "duration": 120, "color": "#FFD580" }
+      ],
+      "steps": [
+        {
+          "id": "storyapimod:find_chest",
+          "description": "Нажми ПКМ по сундуку.",
+          "trigger": { "type": "block_click", "block": "minecraft:chest" },
+          "dialogue": [
+            { "text": "В сундуке лежит записка: проводник ждёт тебя в деревне.", "duration": 100 }
+          ]
+        },
+        {
+          "id": "storyapimod:enter_village",
+          "description": "Войди в деревню.",
+          "trigger": {
+            "type": "area_enter",
+            "dimension": "minecraft:overworld",
+            "min": [10, -61, 10],
+            "max": [20, -50, 20]
+          },
+          "dialogue": [
+            { "text": "Ты вошёл в деревню. Пора вернуться к проводнику.", "duration": 100 }
+          ]
+        },
+        {
+          "id": "storyapimod:return_to_guide",
+          "description": "Вернись к проводнику.",
+          "trigger": { "type": "entity_click", "entity": "minecraft:villager", "tag": "story_guide" }
+        }
+      ],
+      "onComplete": [
+        { "text": "Проводник: спасибо! Держи три изумруда. Поговори со мной ещё раз — есть новое поручение.", "duration": 140, "color": "#80FF80" }
+      ],
+      "reward": { "item": "minecraft:emerald", "count": 3 }
+    },
+    {
+      "id": "storyapimod:village_work",
+      "title": "Первое поручение",
+      "start": { "type": "entity_click", "entity": "minecraft:villager", "tag": "story_guide" },
+      "onStart": [
+        { "text": "Проводник: проверь верстак. Теперь ты можешь помогать деревне.", "duration": 100 }
+      ],
+      "steps": [
+        {
+          "id": "storyapimod:inspect_crafting_table",
+          "description": "Нажми ПКМ по верстаку.",
+          "trigger": { "type": "block_click", "block": "minecraft:crafting_table" }
+        }
+      ],
+      "onComplete": [
+        { "text": "Рабочее место готово. Первое поручение выполнено!", "duration": 100, "color": "#80FF80" }
+      ],
+      "reward": { "item": "minecraft:bread", "count": 2 }
+    }
+  ]
+}
