@@ -135,8 +135,8 @@ public class DialogueSubtitles {
         }
 
         Minecraft mc = Minecraft.getInstance();
-        Component styledText = currentLine.getStyledText();
-        int textWidth = mc.font.width(styledText);
+        String text = currentLine.getStyledText().getString();
+        int textWidth = mc.font.width(text);
 
 
         int x = (mc.getWindow().getGuiScaledWidth() - textWidth) / 2;
@@ -145,11 +145,14 @@ public class DialogueSubtitles {
 
 
         int alpha = Mth.clamp((int) (255 * currentLine.getAlpha()), 0, 255);
-        int baseColor = styledText.getStyle().getColor() != null ? styledText.getStyle().getColor().getValue() : 0xFFFFFF;
-        int color = (baseColor & 0xFFFFFF) | (alpha << 24);
+        int brightness = Mth.floor(Mth.clampedLerp(255.0, 75.0, currentLine.getProgress()));
+        int color = (alpha << 24) | (brightness << 16) | (brightness << 8) | brightness;
+        int background = mc.options.getBackgroundColor(0.8F);
+        int backgroundAlpha = Mth.clamp((int) ((background >>> 24) * currentLine.getAlpha()), 0, 255);
+        gui.fill(x - 2, y - 21, x + textWidth + 2, y - 11, (background & 0xFFFFFF) | (backgroundAlpha << 24));
 
 
-        gui.drawString(mc.font, styledText, x, y - 20, color, false);
+        gui.drawString(mc.font, text, x, y - 20, color, true);
     }
 
 

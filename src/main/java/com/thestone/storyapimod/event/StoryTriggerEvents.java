@@ -2,6 +2,8 @@ package com.thestone.storyapimod.event;
 
 import com.thestone.storyapimod.Storyapimod;
 import com.thestone.storyapimod.story.StoryRuntime;
+import com.thestone.storyapimod.story.triggers.TriggerSignal;
+import net.minecraft.world.item.ItemStack;
 import java.io.IOException;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
@@ -69,6 +71,7 @@ public class StoryTriggerEvents {
             return;
         }
 
+        StoryGameplayEvents.flush(player);
         StoryRuntime.tick(player);
     }
 
@@ -90,6 +93,7 @@ public class StoryTriggerEvents {
     public static void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             StoryRuntime.forget(player);
+            StoryRuntime.signal(player, new TriggerSignal("dimension_changed", null, null, ItemStack.EMPTY, 1, event.getFrom().location().toString(), null));
         }
     }
 

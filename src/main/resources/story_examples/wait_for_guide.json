@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "id": "storyapimod:waiting_story",
+  "quests": [
+    {
+      "id": "storyapimod:guide_supplies",
+      "title": "Запасы для проводника",
+      "start": {
+        "type": "entity_click",
+        "entity": "minecraft:villager",
+        "tag": "story_guide"
+      },
+      "steps": [
+        {
+          "id": "storyapimod:bring_bread",
+          "description": "Собери 3 хлеба в инвентаре.",
+          "trigger": {
+            "type": "inventory_contains",
+            "item": "minecraft:bread",
+            "count": 3
+          }
+        }
+      ],
+      "onComplete": [
+        {
+          "text": "Проводник: спасибо! Приходи через сутки.",
+          "duration": 100
+        }
+      ],
+      "completionActions": [
+        {
+          "type": "wait",
+          "ticks": 24000
+        },
+        {
+          "type": "complete_event",
+          "event": "storyapimod:guide_ready"
+        }
+      ]
+    },
+    {
+      "id": "storyapimod:guide_next_day",
+      "title": "Новое поручение",
+      "start": {
+        "type": "entity_click",
+        "entity": "minecraft:villager",
+        "tag": "story_guide",
+        "requires": "storyapimod:guide_ready"
+      },
+      "onStart": [
+        {
+          "text": "Проводник: ты вовремя. Теперь помоги защитить деревню.",
+          "duration": 100
+        }
+      ],
+      "steps": [
+        {
+          "id": "storyapimod:kill_zombies",
+          "description": "Убей 3 зомби.",
+          "trigger": {
+            "type": "entity_killed",
+            "entity": "minecraft:zombie",
+            "count": 3
+          }
+        }
+      ],
+      "reward": {
+        "item": "minecraft:emerald",
+        "count": 3
+      }
+    }
+  ]
+}

@@ -26,6 +26,19 @@ public final class StoryFilesTest {
             check(loaded.getFirst().quests().getFirst().reward().count() == 3, "Reward must survive parsing");
             check(loaded.getFirst().quests().getFirst().onStart().getFirst().text().contains("добро пожаловать"), "UTF-8 dialogue must survive parsing");
 
+            String waiting = Files.readString(Path.of("src/main/resources/story_examples/wait_for_guide.json"));
+            Files.writeString(file, waiting);
+            List<StoryDocument> waitingStory = StoryFiles.read(directory);
+            check(waitingStory.getFirst().quests().getFirst().completionActions().getFirst().ticks() == 24000, "Example must wait a full day");
+            check(waitingStory.getFirst().quests().get(1).start().requires().equals("storyapimod:guide_ready"), "Next conversation must depend on the completed event");
+            try {
+                Files.writeString(file, waiting.replace("\"requires\": \"storyapimod:guide_ready\"", "\"requires\": \"storyapimod:missing\""));
+                StoryFiles.read(directory);
+                throw new AssertionError("Unknown event reference accepted");
+            } catch (IOException exception) {
+                check(exception.getMessage().contains("storyapimod:missing"), "Invalid references must identify the missing event");
+            }
+
             reject(file, directory, example.replace("\"version\": 1", "\"version\": 2"));
             reject(file, directory, example.replace("[20, -50, 20]", "[20, -61, 20]"));
             reject(file, directory, example.replace("block_click", "unsupported"));

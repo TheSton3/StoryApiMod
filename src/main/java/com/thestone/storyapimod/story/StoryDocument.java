@@ -17,13 +17,15 @@ public record StoryDocument(int version, String id, List<QuestDefinition> quests
         }
     }
 
-    public record QuestDefinition(String id, String title, Trigger start, List<Dialogue> onStart, List<StepDefinition> steps, List<Dialogue> onComplete, Reward reward) {
+    public record QuestDefinition(String id, String title, Trigger start, List<Dialogue> onStart, List<StepDefinition> steps, List<Dialogue> onComplete, Reward reward, List<Action> startActions, List<Action> completionActions) {
         public QuestDefinition {
             id = identifier(id);
             title = text(title, "title");
             Objects.requireNonNull(start, "start");
             onStart = optional(onStart);
             onComplete = optional(onComplete);
+            startActions = optional(startActions);
+            completionActions = optional(completionActions);
             steps = List.copyOf(Objects.requireNonNull(steps, "steps"));
             require(!steps.isEmpty(), "steps must not be empty");
             Set<String> ids = new HashSet<>();
@@ -33,35 +35,75 @@ public record StoryDocument(int version, String id, List<QuestDefinition> quests
         }
     }
 
-    public record StepDefinition(String id, String description, Trigger trigger, List<Dialogue> dialogue) {
+    public record StepDefinition(String id, String description, Trigger trigger, List<Dialogue> dialogue, List<Action> actions) {
         public StepDefinition {
             id = identifier(id);
             description = text(description, "description");
             Objects.requireNonNull(trigger, "trigger");
             dialogue = optional(dialogue);
+            actions = optional(actions);
         }
     }
 
-    public record Trigger(String type, String block, String entity, String tag, String dimension, List<Double> min, List<Double> max) {
+    public record Trigger(String type, String block, String entity, String tag, String dimension, List<Double> min, List<Double> max, String item, Integer count, Double health, Double distance, String from, String event, String requires, Integer delay, String phase) {
         public Trigger {
             type = text(type, "trigger.type");
             dimension = identifier(dimension == null ? "minecraft:overworld" : dimension);
+            count = count == null ? 1 : count;
+            delay = delay == null ? 0 : delay;
+            distance = distance == null ? 6.0 : distance;
+            require(count > 0 && count <= 1000000, "trigger.count must be 1..1000000");
+            require(delay >= 0 && delay <= 24000000, "trigger.delay must be 0..24000000 ticks");
+            require(Double.isFinite(distance) && distance > 0 && distance <= 128, "trigger.distance must be 0..128");
+            if (requires != null) requires = identifier(requires);
+            if (from != null) from = identifier(from);
+            if (tag != null) tag = text(tag, "tag");
             switch (type) {
-                case "block_click" -> block = identifier(block);
-                case "entity_click" -> {
+                case "block_click", "block_broken" -> block = identifier(block);
+                case "entity_click", "entity_killed", "npc_distance" -> {
                     entity = identifier(entity);
                     if (tag != null) {
                         tag = text(tag, "tag");
                     }
                 }
-                case "area_enter" -> {
+                case "area_enter", "area_exit" -> {
                     min = coordinates(min);
                     max = coordinates(max);
                     for (int axis = 0; axis < 3; axis++) {
                         require(min.get(axis) < max.get(axis), "area min must be less than max on every axis");
                     }
                 }
+                case "item_picked_up", "item_crafted", "item_used", "inventory_contains" -> {
+                    item = identifier(item);
+                    phase = phase == null ? "finish" : phase;
+                    require(List.of("start", "finish", "release", "click").contains(phase), "Invalid item use phase");
+                }
+                case "health_below" -> require(health != null && Double.isFinite(health) && health > 0, "trigger.health must be positive");
+                case "look_at" -> {
+                    require((block == null) != (entity == null), "look_at requires exactly one of block or entity");
+                    if (block != null) block = identifier(block);
+                    if (entity != null) entity = identifier(entity);
+                }
+                case "event_completed" -> event = identifier(event);
+                case "dimension_changed", "night_started", "sleep_started", "sleep_ended" -> {}
                 default -> throw new IllegalArgumentException("Unknown trigger type: " + type);
+            }
+        }
+    }
+
+    public record Action(String type, Integer ticks, String text, Integer duration, String color, String event) {
+        public Action {
+            type = StoryDocument.text(type, "action.type").toLowerCase(java.util.Locale.ROOT);
+            switch (type) {
+                case "wait" -> require(ticks != null && ticks > 0 && ticks <= 24000000, "wait.ticks must be 1..24000000");
+                case "dialogue" -> {
+                    duration = duration == null ? 100 : duration;
+                    Dialogue validated = new Dialogue(text, duration, color);
+                    text = validated.text();
+                    color = validated.color();
+                }
+                case "complete_event" -> event = identifier(event);
+                default -> throw new IllegalArgumentException("Unknown action type: " + type);
             }
         }
     }

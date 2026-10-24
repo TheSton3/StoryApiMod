@@ -69,9 +69,7 @@ neoForge {
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 dependencies {
-    testRuntimeOnly 'com.google.code.gson:gson:2.10.1'
-    testRuntimeOnly 'com.google.code.gson:gson:2.10.1'
-
+    testImplementation 'com.google.code.gson:gson:2.10.1'
 }
 
 TaskProvider<ProcessResources> generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {
@@ -122,6 +120,13 @@ tasks.register('storyParserTest', JavaExec) {
     workingDir = projectDir
 }
 
+tasks.register('storyExecutionTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.thestone.storyapimod.story.StoryExecutionTest'
+    workingDir = projectDir
+}
+
 tasks.named('check') {
-    dependsOn tasks.named('storyParserTest')
+    dependsOn tasks.named('storyParserTest'), tasks.named('storyExecutionTest')
 }

@@ -2,6 +2,7 @@ package com.thestone.storyapimod.core;
 
 import com.mojang.serialization.Codec;
 import com.thestone.storyapimod.Storyapimod;
+import com.thestone.storyapimod.story.StoryExecutionState;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.attachment.AttachmentType;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -18,6 +19,14 @@ public class ModAttachments {
             ATTACHMENT_TYPES.register("completed_story_events", () ->
                     AttachmentType.<List<String>>builder(() -> new ArrayList<String>())
                             .serialize(Codec.STRING.listOf())
+                            .copyOnDeath()
+                            .build()
+            );
+
+    public static final Supplier<AttachmentType<StoryExecutionState>> EXECUTION =
+            ATTACHMENT_TYPES.register("story_execution", () ->
+                    AttachmentType.builder(StoryExecutionState::new)
+                            .serialize(Codec.STRING.xmap(StoryExecutionState::load, StoryExecutionState::save))
                             .copyOnDeath()
                             .build()
             );

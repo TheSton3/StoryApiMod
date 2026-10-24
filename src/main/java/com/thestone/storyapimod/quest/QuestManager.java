@@ -54,6 +54,7 @@ public class QuestManager {
         );
 
         boolean changed = completed.removeIf(keys::contains);
+        changed |= com.thestone.storyapimod.story.StoryRuntime.reset(player, quest);
 
         if (changed) {
             player.setData(ModAttachments.COMPLETED, completed);

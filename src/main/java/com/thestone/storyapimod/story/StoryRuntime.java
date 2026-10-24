@@ -6,18 +6,20 @@ import com.thestone.storyapimod.payloads.QuestCatalogPayload;
 import com.thestone.storyapimod.quest.Quest;
 import com.thestone.storyapimod.quest.QuestManager;
 import com.thestone.storyapimod.quest.QuestStep;
+import com.thestone.storyapimod.core.ModAttachments;
+import com.thestone.storyapimod.story.triggers.TriggerCondition;
+import com.thestone.storyapimod.story.triggers.TriggerConditions;
+import com.thestone.storyapimod.story.triggers.TriggerMemory;
+import com.thestone.storyapimod.story.triggers.TriggerSignal;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
-import java.util.function.Predicate;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -26,13 +28,10 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.AABB;
 import net.neoforged.fml.loading.FMLPaths;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.slf4j.Logger;
@@ -41,9 +40,8 @@ public final class StoryRuntime {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static List<Chain> chains = List.of();
     private static List<Quest> quests = List.of();
-    private static List<ResolvedTrigger> areas = List.of();
     private static QuestCatalogPayload catalog = QuestCatalogPayload.from(List.of());
-    private static final Map<UUID, Set<ResolvedTrigger>> OCCUPIED = new HashMap<>();
+    private static final Map<UUID, Map<String, TriggerMemory>> MEMORIES = new HashMap<>();
 
     private StoryRuntime() {}
 
@@ -70,7 +68,6 @@ public final class StoryRuntime {
         List<StoryDocument> documents = StoryFiles.read(directory);
         List<Chain> loadedChains = new ArrayList<>();
         List<Quest> loadedQuests = new ArrayList<>();
-        List<ResolvedTrigger> loadedAreas = new ArrayList<>();
         for (StoryDocument document : documents) {
             List<BoundQuest> storyQuests = new ArrayList<>();
             for (StoryDocument.QuestDefinition definition : document.quests()) {
@@ -89,13 +86,11 @@ public final class StoryRuntime {
                             player -> giveReward(player, item, definition.reward() == null ? 0 : definition.reward().count()));
                     ResolvedTrigger start = resolve(server, definition.start());
                     List<BoundStep> boundSteps = new ArrayList<>();
-                    addArea(loadedAreas, start);
                     for (StoryDocument.StepDefinition step : definition.steps()) {
                         ResolvedTrigger trigger = resolve(server, step.trigger());
-                        boundSteps.add(new BoundStep(ResourceLocation.parse(step.id()), trigger, step.dialogue()));
-                        addArea(loadedAreas, trigger);
+                        boundSteps.add(new BoundStep(ResourceLocation.parse(step.id()), trigger, step.dialogue(), step.actions()));
                     }
-                    storyQuests.add(new BoundQuest(quest, start, List.copyOf(boundSteps), definition.onStart(), definition.onComplete()));
+                    storyQuests.add(new BoundQuest(quest, start, List.copyOf(boundSteps), definition.onStart(), definition.onComplete(), definition.startActions(), definition.completionActions()));
                     loadedQuests.add(quest);
                 } catch (RuntimeException exception) {
                     throw new IOException(document.id() + " / " + definition.id() + ": " + exception.getMessage(), exception);
@@ -112,9 +107,8 @@ public final class StoryRuntime {
         }
         chains = List.copyOf(loadedChains);
         quests = List.copyOf(loadedQuests);
-        areas = List.copyOf(loadedAreas);
         catalog = loadedCatalog;
-        OCCUPIED.clear();
+        MEMORIES.clear();
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             sync(player);
         }
@@ -123,16 +117,16 @@ public final class StoryRuntime {
     }
 
     public static void sync(ServerPlayer player) {
+        execution(player).retain(quests.stream().map(quest -> quest.id().toString()).collect(java.util.stream.Collectors.toSet()));
         PacketDistributor.sendToPlayer(player, catalog);
     }
 
     public static void blockClicked(ServerPlayer player, BlockState state) {
-        process(player, trigger -> trigger.block() != null && state.is(trigger.block()));
+        signal(player, new TriggerSignal("block_click", state, null, ItemStack.EMPTY, 1, null, null));
     }
 
     public static void entityClicked(ServerPlayer player, Entity entity) {
-        process(player, trigger -> trigger.entity() != null && entity.getType() == trigger.entity()
-                && (trigger.tag() == null || entity.getTags().contains(trigger.tag())));
+        signal(player, new TriggerSignal("entity_click", null, entity, ItemStack.EMPTY, 1, null, null));
     }
 
     public static void tick(ServerPlayer player) {
@@ -140,35 +134,25 @@ public final class StoryRuntime {
             forget(player);
             return;
         }
-        Set<ResolvedTrigger> inside = new HashSet<>();
-        for (ResolvedTrigger area : areas) {
-            if (player.level().dimension().equals(area.dimension()) && area.bounds().contains(player.position())) {
-                inside.add(area);
-            }
-        }
-        Set<ResolvedTrigger> previous = OCCUPIED.put(player.getUUID(), inside);
-        Set<ResolvedTrigger> entered = new HashSet<>(inside);
-        if (previous != null) {
-            entered.removeAll(previous);
-        }
-        if (!entered.isEmpty()) {
-            process(player, entered::contains);
-        }
+        execution(player).tick((owner, action) -> executeAction(player, owner, action));
+        signal(player, TriggerSignal.TICK);
     }
 
-    private static void process(ServerPlayer player, Predicate<ResolvedTrigger> matches) {
+    public static void signal(ServerPlayer player, TriggerSignal signal) {
         if (!player.isAlive() || player.isSpectator()) {
             return;
         }
         for (Chain chain : chains) {
+            if (chain.quests().stream().anyMatch(value -> execution(player).busy(value.quest().id().toString()))) continue;
             BoundQuest current = chain.quests().stream().filter(value -> !QuestManager.isCompleted(player, value.quest())).findFirst().orElse(null);
             if (current == null) {
                 continue;
             }
             Quest quest = current.quest();
             if (!QuestManager.isStarted(player, quest)) {
-                if (matches(player, current.start(), matches) && QuestManager.start(player, quest)) {
+                if (matches(player, quest.id() + "|start", current.start(), signal) && QuestManager.start(player, quest)) {
                     play(player, current.onStart());
+                    enqueue(player, quest, current.startActions());
                 }
                 continue;
             }
@@ -177,18 +161,62 @@ public final class StoryRuntime {
                 continue;
             }
             BoundStep step = current.steps().stream().filter(value -> value.id().equals(active.id())).findFirst().orElseThrow();
-            if (matches(player, step.trigger(), matches) && QuestManager.completeStep(player, quest, step.id())) {
+            if (matches(player, quest.id() + "|step|" + step.id(), step.trigger(), signal) && QuestManager.completeStep(player, quest, step.id())) {
+                execution(player).complete(quest.id().toString(), step.id().toString());
                 List<StoryDocument.Dialogue> dialogue = new ArrayList<>(step.dialogue());
+                List<StoryDocument.Action> actions = new ArrayList<>(step.actions());
                 if (QuestManager.isCompleted(player, quest)) {
                     dialogue.addAll(current.onComplete());
+                    actions.addAll(current.completionActions());
                 }
                 play(player, dialogue);
+                enqueue(player, quest, actions);
             }
         }
     }
 
-    private static boolean matches(ServerPlayer player, ResolvedTrigger trigger, Predicate<ResolvedTrigger> predicate) {
-        return player.level().dimension().equals(trigger.dimension()) && predicate.test(trigger);
+    private static boolean matches(ServerPlayer player, String node, ResolvedTrigger trigger, TriggerSignal signal) {
+        StoryExecutionState state = execution(player);
+        if (signal == TriggerSignal.TICK) state.age(node);
+        StoryDocument.Trigger definition = trigger.definition();
+        if (!state.ready(node, definition.delay()) || definition.requires() != null && !eventCompleted(player, definition.requires())) return false;
+        TriggerMemory memory = MEMORIES.computeIfAbsent(player.getUUID(), key -> new HashMap<>()).computeIfAbsent(node, key -> new TriggerMemory());
+        if (!player.level().dimension().equals(trigger.dimension())) {
+            memory.previous = null;
+            return false;
+        }
+        if (!trigger.condition().matches(player, signal, memory)) return false;
+        if (List.of("entity_killed", "item_picked_up", "item_crafted", "item_used", "block_broken").contains(definition.type())) {
+            return state.increment(node, Math.max(0, signal.amount()), definition.count()) >= definition.count();
+        }
+        return true;
+    }
+
+    public static boolean eventCompleted(ServerPlayer player, String event) {
+        return execution(player).completed(event) || quests.stream().anyMatch(quest -> quest.id().toString().equals(event) && QuestManager.isCompleted(player, quest));
+    }
+
+    private static StoryExecutionState execution(ServerPlayer player) {
+        return player.getData(ModAttachments.EXECUTION);
+    }
+
+    private static void enqueue(ServerPlayer player, Quest quest, List<StoryDocument.Action> actions) {
+        String owner = quest.id().toString();
+        execution(player).enqueue(owner, actions, action -> executeAction(player, owner, action));
+    }
+
+    private static void executeAction(ServerPlayer player, String owner, StoryDocument.Action action) {
+        if (action.type().equals("complete_event")) {
+            execution(player).complete(owner, action.event());
+        } else if (action.type().equals("dialogue")) {
+            Component text = Component.literal(action.text()).withColor(Integer.parseInt(action.color().substring(1), 16));
+            DialoguePayload.sendTo(player, text, action.duration(), false, true);
+        }
+    }
+
+    public static boolean reset(ServerPlayer player, Quest quest) {
+        forget(player);
+        return execution(player).reset(quest.id().toString());
     }
 
     private static void play(ServerPlayer player, List<StoryDocument.Dialogue> dialogue) {
@@ -216,53 +244,27 @@ public final class StoryRuntime {
         if (server.getLevel(dimension) == null) {
             throw new IllegalArgumentException("Unknown dimension: " + trigger.dimension());
         }
-        Block block = null;
-        EntityType<?> entity = null;
-        AABB bounds = null;
-        switch (trigger.type()) {
-            case "block_click" -> {
-                ResourceLocation id = ResourceLocation.parse(trigger.block());
-                if (!BuiltInRegistries.BLOCK.containsKey(id)) {
-                    throw new IllegalArgumentException("Unknown block: " + id);
-                }
-                block = BuiltInRegistries.BLOCK.get(id);
-            }
-            case "entity_click" -> {
-                ResourceLocation id = ResourceLocation.parse(trigger.entity());
-                if (!BuiltInRegistries.ENTITY_TYPE.containsKey(id)) {
-                    throw new IllegalArgumentException("Unknown entity: " + id);
-                }
-                entity = BuiltInRegistries.ENTITY_TYPE.get(id);
-            }
-            case "area_enter" -> bounds = new AABB(trigger.min().get(0), trigger.min().get(1), trigger.min().get(2), trigger.max().get(0), trigger.max().get(1), trigger.max().get(2));
-            default -> throw new IllegalArgumentException("Unknown trigger: " + trigger.type());
-        }
-        return new ResolvedTrigger(dimension, block, entity, trigger.tag(), bounds);
-    }
-
-    private static void addArea(List<ResolvedTrigger> target, ResolvedTrigger trigger) {
-        if (trigger.bounds() != null) {
-            target.add(trigger);
-        }
+        return new ResolvedTrigger(dimension, trigger, TriggerConditions.resolve(server, trigger));
     }
 
     public static void forget(ServerPlayer player) {
-        OCCUPIED.remove(player.getUUID());
+        MEMORIES.remove(player.getUUID());
+        com.thestone.storyapimod.event.StoryGameplayEvents.forget(player);
     }
 
     public static void clear() {
+        com.thestone.storyapimod.event.StoryGameplayEvents.clear();
         chains = List.of();
         quests = List.of();
-        areas = List.of();
         catalog = QuestCatalogPayload.from(List.of());
-        OCCUPIED.clear();
+        MEMORIES.clear();
     }
 
     private record Chain(List<BoundQuest> quests) {}
 
-    private record BoundQuest(Quest quest, ResolvedTrigger start, List<BoundStep> steps, List<StoryDocument.Dialogue> onStart, List<StoryDocument.Dialogue> onComplete) {}
+    private record BoundQuest(Quest quest, ResolvedTrigger start, List<BoundStep> steps, List<StoryDocument.Dialogue> onStart, List<StoryDocument.Dialogue> onComplete, List<StoryDocument.Action> startActions, List<StoryDocument.Action> completionActions) {}
 
-    private record BoundStep(ResourceLocation id, ResolvedTrigger trigger, List<StoryDocument.Dialogue> dialogue) {}
+    private record BoundStep(ResourceLocation id, ResolvedTrigger trigger, List<StoryDocument.Dialogue> dialogue, List<StoryDocument.Action> actions) {}
 
-    private record ResolvedTrigger(ResourceKey<Level> dimension, Block block, EntityType<?> entity, String tag, AABB bounds) {}
+    private record ResolvedTrigger(ResourceKey<Level> dimension, StoryDocument.Trigger definition, TriggerCondition condition) {}
 }

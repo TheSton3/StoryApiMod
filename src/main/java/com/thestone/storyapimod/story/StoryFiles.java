@@ -50,6 +50,35 @@ public final class StoryFiles {
                 throw new IOException(path.getFileName() + ": " + exception.getMessage(), exception);
             }
         }
+        validateReferences(documents);
         return List.copyOf(documents);
+    }
+
+    private static void validateReferences(List<StoryDocument> documents) throws IOException {
+        Set<String> events = new HashSet<>();
+        List<StoryDocument.Trigger> triggers = new ArrayList<>();
+        for (StoryDocument document : documents) {
+            for (StoryDocument.QuestDefinition quest : document.quests()) {
+                events.add(quest.id());
+                triggers.add(quest.start());
+                collectEvents(events, quest.startActions());
+                collectEvents(events, quest.completionActions());
+                for (StoryDocument.StepDefinition step : quest.steps()) {
+                    events.add(step.id());
+                    triggers.add(step.trigger());
+                    collectEvents(events, step.actions());
+                }
+            }
+        }
+        for (StoryDocument.Trigger trigger : triggers) {
+            if (trigger.requires() != null && !events.contains(trigger.requires())) throw new IOException("Unknown event reference in story JSON: " + trigger.requires());
+            if (trigger.type().equals("event_completed") && !events.contains(trigger.event())) throw new IOException("Unknown event reference in story JSON: " + trigger.event());
+        }
+    }
+
+    private static void collectEvents(Set<String> events, List<StoryDocument.Action> actions) {
+        for (StoryDocument.Action action : actions) {
+            if (action.type().equals("complete_event")) events.add(action.event());
+        }
     }
 }
